@@ -1,0 +1,68 @@
+name: ML Pipeline with Gatekeeper Logic
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  linter:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install linting dependencies
+        run: pip install flake8
+
+      - name: Run linter
+        run: flake8 . --max-line-length=120 --exclude=.git,__pycache__
+
+  train:
+    name: Train Model (GPU)
+    runs-on: ubuntu-latest
+    needs: linter
+    if: |
+      needs.linter.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[run-train]')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run training
+        run: python train.py
+
+      - name: Upload error logs on failure
+        if: failure()
+        run: |
+          echo "Training failed at $(date)" > error_logs.txt
+          echo "Branch: ${{ github.ref }}" >> error_logs.txt
+          echo "Commit: ${{ github.sha }}" >> error_logs.txt
+          echo "Commit message: ${{ github.event.head_commit.message }}" >> error_logs.txt
+
+      - name: Upload error_logs.txt artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs
+          path: error_logs.txt
+
+      - name: Cleanup
+        if: always()
+        run: echo "Cleaning up temporary cloud volumes..."
